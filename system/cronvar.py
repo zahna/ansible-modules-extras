@@ -118,14 +118,12 @@ class CronVar(object):
     """
         CronVar object to write variables to crontabs.
 
-        user      - the user of the crontab (defaults to root)
+        user      - the user of the crontab (defaults to None)
         cron_file - a cron file under /etc/cron.d
     """
     def __init__(self, module, user=None, cron_file=None):
         self.module = module
         self.user = user
-        if self.user is None:
-            self.user = 'root'
         self.lines = None
         self.wordchars = ''.join(chr(x) for x in range(128) if chr(x) not in ('=', "'", '"', ))
 
