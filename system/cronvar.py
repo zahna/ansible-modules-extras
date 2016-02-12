@@ -67,7 +67,7 @@ options:
     description:
       - The specific user whose crontab should be modified.
     required: false
-    default: root
+    default: ansible_user
   cron_file:
     description:
       - If specified, uses this file instead of an individual user's crontab.
@@ -118,7 +118,7 @@ class CronVar(object):
     """
         CronVar object to write variables to crontabs.
 
-        user      - the user of the crontab (defaults to None)
+        user      - the user of the crontab (defaults to ansible_user)
         cron_file - a cron file under /etc/cron.d
     """
     def __init__(self, module, user=None, cron_file=None):
