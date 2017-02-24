@@ -17,8 +17,12 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 #
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
-module: na_eseries_facts
+module: netapp_e_facts
 version_added: '2.2'
 short_description: Get facts about NetApp E-Series arrays
 options:
@@ -55,7 +59,7 @@ author: Kevin Hulquest (@hulquest)
 EXAMPLES = """
 ---
     - name: Get array facts
-      na_eseries_facts:
+      netapp_e_facts:
         array_id: "{{ netapp_array_id }}"
         api_url: "{{ netapp_api_url }}"
         api_username: "{{ netapp_api_username }}"
@@ -67,8 +71,6 @@ RETURN = """
 msg: Gathered facts for <StorageArrayId>.
 """
 import json
-
-import os
 
 from ansible.module_utils.api import basic_auth_argument_spec
 from ansible.module_utils.basic import AnsibleModule, get_exception
@@ -173,8 +175,7 @@ def main():
             available_capacity=sp['freeSpace'],
             total_capacity=sp['totalRaidedSpace'],
             used_capacity=sp['usedSpace']
-        ) for sp in resp['volumeGroup']
-        ]
+        ) for sp in resp['volumeGroup']]
 
     all_volumes = list(resp['volume'])
     # all_volumes.extend(resp['thinVolume'])
@@ -187,8 +188,7 @@ def main():
             parent_storage_pool_id=v['volumeGroupRef'],
             capacity=v['capacity'],
             is_thin_provisioned=v['thinProvisioned']
-        ) for v in all_volumes
-        ]
+        ) for v in all_volumes]
 
     features = [f for f in resp['sa']['capabilities']]
     features.extend([f['capability'] for f in resp['sa']['premiumFeatures'] if f['isEnabled']])

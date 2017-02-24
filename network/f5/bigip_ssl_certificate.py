@@ -17,6 +17,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 module: bigip_ssl_certificate
 short_description: Import/Delete certificates from BIG-IP
@@ -88,7 +92,7 @@ notes:
     tmsh or these modules.
 extends_documentation_fragment: f5
 requirements:
-    - f5-sdk >= 1.3.1
+    - f5-sdk >= 1.5.0
     - BigIP >= v12
 author:
     - Kevin Coming (@waffie1)

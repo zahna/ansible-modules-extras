@@ -18,6 +18,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: bigip_facts
@@ -1079,7 +1083,7 @@ class AddressClasses(object):
     def get_address_class(self):
         key = self.api.LocalLB.Class.get_address_class(self.address_classes)
         value = self.api.LocalLB.Class.get_address_class_member_data_value(key)
-        result = map(zip, [x['members'] for x in key], value)
+        result = list(map(zip, [x['members'] for x in key], value))
         return result
 
     def get_description(self):

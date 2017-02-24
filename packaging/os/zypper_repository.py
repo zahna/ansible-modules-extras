@@ -20,6 +20,10 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: zypper_repository
@@ -98,31 +102,53 @@ options:
         default: "no"
         choices: ["yes", "no"]
         version_added: "2.2"
-
+    enabled:
+        description:
+            - Set repository to enabled (or disabled).
+        required: false
+        default: "yes"
+        choices: ["yes", "no"]
+        version_added: "2.2"
 
 
 requirements: 
     - "zypper >= 1.0  # included in openSuSE >= 11.1 or SuSE Linux Enterprise Server/Desktop >= 11.0"
+    - python-xml
 '''
 
 EXAMPLES = '''
 # Add NVIDIA repository for graphics drivers
-- zypper_repository: name=nvidia-repo repo='ftp://download.nvidia.com/opensuse/12.2' state=present
+- zypper_repository:
+    name: nvidia-repo
+    repo: 'ftp://download.nvidia.com/opensuse/12.2'
+    state: present
 
 # Remove NVIDIA repository
-- zypper_repository: name=nvidia-repo repo='ftp://download.nvidia.com/opensuse/12.2' state=absent
+- zypper_repository:
+    name: nvidia-repo
+    repo: 'ftp://download.nvidia.com/opensuse/12.2'
+    state: absent
 
 # Add python development repository
-- zypper_repository: repo=http://download.opensuse.org/repositories/devel:/languages:/python/SLE_11_SP3/devel:languages:python.repo
+- zypper_repository:
+    repo: 'http://download.opensuse.org/repositories/devel:/languages:/python/SLE_11_SP3/devel:languages:python.repo'
 
 # Refresh all repos
-- zypper_repository: repo=* runrefresh=yes
+- zypper_repository:
+    repo: *
+    runrefresh: yes
 
 # Add a repo and add it's gpg key
-- zypper_repository: repo=http://download.opensuse.org/repositories/systemsmanagement/openSUSE_Leap_42.1/ auto_import_keys=yes
+- zypper_repository:
+    repo: 'http://download.opensuse.org/repositories/systemsmanagement/openSUSE_Leap_42.1/'
+    auto_import_keys: yes
  
 # Force refresh of a repository
-- zypper_repository: repo=http://my_internal_ci_repo/repo name=my_ci_repo state=present runrefresh=yes
+- zypper_repository:
+    repo: 'http://my_internal_ci_repo/repo
+    name: my_ci_repo
+    state: present
+    runrefresh: yes
 '''
 
 REPO_OPTS = ['alias', 'name', 'priority', 'enabled', 'autorefresh', 'gpgcheck']
@@ -273,9 +299,10 @@ def get_zypper_version(module):
 
 def runrefreshrepo(module, auto_import_keys=False, shortname=None):
     "Forces zypper to refresh repo metadata."
-    cmd = _get_cmd('refresh', '--force')
     if auto_import_keys:
-        cmd.append('--gpg-auto-import-keys')
+        cmd = _get_cmd('--gpg-auto-import-keys', 'refresh', '--force')
+    else:
+        cmd = _get_cmd('refresh', '--force')
     if shortname is not None:
         cmd.extend(['-r', shortname])
 
@@ -383,4 +410,5 @@ def main():
 # import module snippets
 from ansible.module_utils.basic import *
 
-main()
+if __name__ == '__main__':
+    main()

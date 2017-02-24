@@ -29,6 +29,10 @@
 from xml.dom.minidom import parseString as parseXML
 import re
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'committer',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: zypper
@@ -107,39 +111,64 @@ options:
 # informational: requirements for nodes
 requirements:
     - "zypper >= 1.0  # included in openSuSE >= 11.1 or SuSE Linux Enterprise Server/Desktop >= 11.0"
+    - python-xml
     - rpm
 '''
 
 EXAMPLES = '''
 # Install "nmap"
-- zypper: name=nmap state=present
+- zypper:
+    name: nmap
+    state: present
 
 # Install apache2 with recommended packages
-- zypper: name=apache2 state=present disable_recommends=no
+- zypper:
+    name: apache2
+    state: present
+    disable_recommends: no
 
 # Apply a given patch
-- zypper: name=openSUSE-2016-128 state=present type=patch
+- zypper:
+    name: openSUSE-2016-128
+    state: present
+    type: patch
 
 # Remove the "nmap" package
-- zypper: name=nmap state=absent
+- zypper:
+    name: nmap
+    state: absent
 
 # Install the nginx rpm from a remote repo
-- zypper: name=http://nginx.org/packages/sles/12/x86_64/RPMS/nginx-1.8.0-1.sles12.ngx.x86_64.rpm state=present
+- zypper:
+    name: 'http://nginx.org/packages/sles/12/x86_64/RPMS/nginx-1.8.0-1.sles12.ngx.x86_64.rpm'
+    state: present
 
 # Install local rpm file
-- zypper: name=/tmp/fancy-software.rpm state=present
+- zypper:
+    name: /tmp/fancy-software.rpm
+    state: present
 
 # Update all packages
-- zypper: name=* state=latest
+- zypper:
+    name: *
+    state: latest
 
 # Apply all available patches
-- zypper: name=* state=latest type=patch
+- zypper:
+    name: *
+    state: latest
+    type: patch
 
 # Refresh repositories and update package "openssl"
-- zypper: name=openssl state=present update_cache=yes
+- zypper:
+    name: openssl
+    state: present
+    update_cache: yes
 
 # Install specific version (possible comparisons: <, >, <=, >=, =)
-- zypper: name=docker>=1.10 state=installed
+- zypper:
+    name: 'docker>=1.10'
+    state: installed
 '''
 
 
@@ -266,15 +295,16 @@ def get_cmd(m, subcommand):
 def set_diff(m, retvals, result):
     # TODO: if there is only one package, set before/after to version numbers
     packages = {'installed': [], 'removed': [], 'upgraded': []}
-    for p in result:
-        group = result[p]['group']
-        if group == 'to-upgrade':
-            versions = ' (' + result[p]['oldversion'] + ' => ' + result[p]['version'] + ')'
-            packages['upgraded'].append(p + versions)
-        elif group == 'to-install':
-            packages['installed'].append(p)
-        elif group == 'to-remove':
-            packages['removed'].append(p)
+    if result:
+        for p in result:
+            group = result[p]['group']
+            if group == 'to-upgrade':
+                versions = ' (' + result[p]['oldversion'] + ' => ' + result[p]['version'] + ')'
+                packages['upgraded'].append(p + versions)
+            elif group == 'to-install':
+                packages['installed'].append(p)
+            elif group == 'to-remove':
+                packages['removed'].append(p)
 
     output = ''
     for state in packages:

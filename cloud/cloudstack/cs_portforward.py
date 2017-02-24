@@ -18,6 +18,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible. If not, see <http://www.gnu.org/licenses/>.
 
+ANSIBLE_METADATA = {'status': ['stableinterface'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: cs_portforward
@@ -239,6 +243,8 @@ class AnsibleCloudStackPortforwarding(AnsibleCloudStack):
 
             args = {}
             args['ipaddressid'] = self.get_ip_address(key='id')
+            args['account'] = self.get_account(key='name')
+            args['domainid'] = self.get_domain(key='id')
             args['projectid'] = self.get_project(key='id')
             portforwarding_rules = self.cs.listPortForwardingRules(**args)
 
@@ -271,6 +277,8 @@ class AnsibleCloudStackPortforwarding(AnsibleCloudStack):
         args['vmguestip']           = self.get_vm_guest_ip()
         args['ipaddressid']         = self.get_ip_address(key='id')
         args['virtualmachineid']    = self.get_vm(key='id')
+        args['account']             = self.get_account(key='name')
+        args['domainid']            = self.get_domain(key='id')
 
         portforwarding_rule = None
         self.result['changed'] = True

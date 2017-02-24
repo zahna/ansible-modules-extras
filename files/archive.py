@@ -1,6 +1,10 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+# import module snippets
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.pycompat24 import get_exception
+
 """
 (c) 2016, Ben Doherty <bendohmv@gmail.com>
 Sponsored by Oomph, Inc. http://www.oomphinc.com
@@ -21,10 +25,14 @@ You should have received a copy of the GNU General Public License
 along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: archive
-version_added: 2.2
+version_added: 2.3
 short_description: Creates a compressed archive of one or more files or trees.
 extends_documentation_fragment: files
 description:
@@ -34,7 +42,7 @@ options:
     description:
       - Remote absolute path, glob, or list of paths or globs for the file or files to compress or archive.
     required: true
-  compression:
+  format:
     description:
       - The type of compression to use. Can be 'gz', 'bz2', or 'zip'.
     choices: [ 'gz', 'bz2', 'zip' ]
@@ -59,13 +67,19 @@ notes:
 
 EXAMPLES = '''
 # Compress directory /path/to/foo/ into /path/to/foo.tgz
-- archive: path=/path/to/foo dest=/path/to/foo.tgz
+- archive:
+    path: /path/to/foo
+    dest: /path/to/foo.tgz
 
 # Compress regular file /path/to/foo into /path/to/foo.gz and remove it
-- archive: path=/path/to/foo remove=True
+- archive:
+    path: /path/to/foo
+    remove: True
 
 # Create a zip archive of /path/to/foo
-- archive: path=/path/to/foo compression=zip
+- archive:
+    path: /path/to/foo
+    format: zip
 
 # Create a bz2 archive of multiple files, rooted at /path
 - archive:
@@ -73,7 +87,7 @@ EXAMPLES = '''
         - /path/to/foo
         - /path/wong/foo
     dest: /path/file.tar.bz2
-    compression: bz2
+    format: bz2
 '''
 
 RETURN = '''
@@ -102,9 +116,8 @@ expanded_paths:
     type: list
 '''
 
-import stat
 import os
-import errno
+import re
 import glob
 import shutil
 import gzip
@@ -117,8 +130,8 @@ def main():
     module = AnsibleModule(
         argument_spec = dict(
             path = dict(type='list', required=True),
-            compression = dict(choices=['gz', 'bz2', 'zip'], default='gz', required=False),
-            dest = dict(required=False),
+            format  = dict(choices=['gz', 'bz2', 'zip', 'tar'], default='gz', required=False),
+            dest = dict(required=False, type='path'),
             remove = dict(required=False, default=False, type='bool'),
         ),
         add_file_common_args=True,
@@ -126,11 +139,13 @@ def main():
     )
 
     params = module.params
+    check_mode = module.check_mode
     paths = params['path']
     dest = params['dest']
     remove = params['remove']
+
     expanded_paths = []
-    compression = params['compression']
+    format = params['format']
     globby = False
     changed = False
     state = 'absent'
@@ -140,11 +155,16 @@ def main():
     successes = []
 
     for i, path in enumerate(paths):
-        path = os.path.expanduser(path)
+        path = os.path.expanduser(os.path.expandvars(path))
 
-        # Detect glob-like characters
-        if any((c in set('*?')) for c in path):
+        # Expand any glob characters. If found, add the expanded glob to the
+        # list of expanded_paths, which might be empty.
+        if ('*' in path or '?' in path):
             expanded_paths = expanded_paths + glob.glob(path)
+            globby = True
+
+        # If there are no glob characters the path is added to the expanded paths
+        # whether the path exists or not
         else:
             expanded_paths.append(path)
 
@@ -156,11 +176,9 @@ def main():
     archive = globby or os.path.isdir(expanded_paths[0]) or len(expanded_paths) > 1
 
     # Default created file name (for single-file archives) to
-    # <file>.<compression>
-    if dest:
-        dest = os.path.expanduser(dest)
-    elif not archive:
-        dest = '%s.%s' % (expanded_paths[0], compression)
+    # <file>.<format>
+    if not dest and not archive:
+        dest = '%s.%s' % (expanded_paths[0], format)
 
     # Force archives to specify 'dest'
     if archive and not dest:
@@ -168,7 +186,6 @@ def main():
 
     archive_paths = []
     missing = []
-    exclude = []
     arcroot = ''
 
     for path in expanded_paths:
@@ -177,7 +194,7 @@ def main():
         if arcroot == '':
             arcroot = os.path.dirname(path) + os.sep
         else:
-            for i in xrange(len(arcroot)):
+            for i in range(len(arcroot)):
                 if path[i] != arcroot[i]:
                     break
 
@@ -198,7 +215,7 @@ def main():
     # No source files were found but the named archive exists: are we 'compress' or 'archive' now?
     if len(missing) == len(expanded_paths) and dest and os.path.exists(dest):
         # Just check the filename to know if it's an archive or simple compressed file
-        if re.search(r'(\.tar\.gz|\.tgz|.tbz2|\.tar\.bz2|\.zip)$', os.path.basename(dest), re.IGNORECASE):
+        if re.search(r'(\.tar|\.tar\.gz|\.tgz|.tbz2|\.tar\.bz2|\.zip)$', os.path.basename(dest), re.IGNORECASE):
             state = 'archive'
         else:
             state = 'compress'
@@ -221,77 +238,85 @@ def main():
             size = os.path.getsize(dest)
 
         if state != 'archive':
-            try:
+            if check_mode:
+                changed = True
 
-                # Slightly more difficult (and less efficient!) compression using zipfile module
-                if compression == 'zip':
-                    arcfile = zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED)
+            else:
+                try:
+                    # Slightly more difficult (and less efficient!) compression using zipfile module
+                    if format == 'zip':
+                        arcfile = zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED)
 
-                # Easier compression using tarfile module
-                elif compression == 'gz' or compression == 'bz2':
-                    arcfile = tarfile.open(dest, 'w|' + compression)
+                    # Easier compression using tarfile module
+                    elif format == 'gz' or format == 'bz2':
+                        arcfile = tarfile.open(dest, 'w|' + format)
 
-                for path in archive_paths:
-                    if os.path.isdir(path):
-                        # Recurse into directories
-                        for dirpath, dirnames, filenames in os.walk(path, topdown=True):
-                            if not dirpath.endswith(os.sep):
-                                dirpath += os.sep
+                    # Or plain tar archiving
+                    elif format == 'tar':
+                        arcfile = tarfile.open(dest, 'w')
 
-                            for dirname in dirnames:
-                                fullpath = dirpath + dirname
-                                arcname = fullpath[len(arcroot):]
+                    match_root = re.compile('^%s' % re.escape(arcroot))
+                    for path in archive_paths:
+                        if os.path.isdir(path):
+                            # Recurse into directories
+                            for dirpath, dirnames, filenames in os.walk(path, topdown=True):
+                                if not dirpath.endswith(os.sep):
+                                    dirpath += os.sep
 
-                                try:
-                                    if compression == 'zip':
-                                        arcfile.write(fullpath, arcname)
-                                    else:
-                                        arcfile.add(fullpath, arcname, recursive=False)
+                                for dirname in dirnames:
+                                    fullpath = dirpath + dirname
+                                    arcname = match_root.sub('', fullpath)
 
-                                except Exception:
-                                    e = get_exception()
-                                    errors.append('%s: %s' % (fullpath, str(e)))
-
-                            for filename in filenames:
-                                fullpath = dirpath + filename
-                                arcname = fullpath[len(arcroot):]
-
-                                if not filecmp.cmp(fullpath, dest):
                                     try:
-                                        if compression == 'zip':
+                                        if format == 'zip':
                                             arcfile.write(fullpath, arcname)
                                         else:
                                             arcfile.add(fullpath, arcname, recursive=False)
 
-                                        successes.append(fullpath)
                                     except Exception:
                                         e = get_exception()
-                                        errors.append('Adding %s: %s' % (path, str(e)))
-                    else:
-                        if compression == 'zip':
-                            arcfile.write(path, path[len(arcroot):])
+                                        errors.append('%s: %s' % (fullpath, str(e)))
+
+                                for filename in filenames:
+                                    fullpath = dirpath + filename
+                                    arcname = match_root.sub('', fullpath)
+
+                                    if not filecmp.cmp(fullpath, dest):
+                                        try:
+                                            if format == 'zip':
+                                                arcfile.write(fullpath, arcname)
+                                            else:
+                                                arcfile.add(fullpath, arcname, recursive=False)
+
+                                            successes.append(fullpath)
+                                        except Exception:
+                                            e = get_exception()
+                                            errors.append('Adding %s: %s' % (path, str(e)))
                         else:
-                            arcfile.add(path, path[len(arcroot):], recursive=False)
+                            if format == 'zip':
+                                arcfile.write(path, match_root.sub('', path))
+                            else:
+                                arcfile.add(path, match_root.sub('', path), recursive=False)
 
-                        successes.append(path)
+                            successes.append(path)
 
-            except Exception:
-                e = get_exception()
-                return module.fail_json(msg='Error when writing %s archive at %s: %s' % (compression == 'zip' and 'zip' or ('tar.' + compression), dest, str(e)))
+                except Exception:
+                    e = get_exception()
+                    return module.fail_json(msg='Error when writing %s archive at %s: %s' % (format == 'zip' and 'zip' or ('tar.' + format), dest, str(e)))
 
-            if arcfile:
-                arcfile.close()
-                state = 'archive'
+                if arcfile:
+                    arcfile.close()
+                    state = 'archive'
 
-            if len(errors) > 0:
-                module.fail_json(msg='Errors when writing archive at %s: %s' % (dest, '; '.join(errors)))
+                if len(errors) > 0:
+                    module.fail_json(msg='Errors when writing archive at %s: %s' % (dest, '; '.join(errors)))
 
         if state in ['archive', 'incomplete'] and remove:
             for path in successes:
                 try:
                     if os.path.isdir(path):
                         shutil.rmtree(path)
-                    else:
+                    elif not check_mode:
                         os.remove(path)
                 except OSError:
                     e = get_exception()
@@ -331,7 +356,7 @@ def main():
                     size = os.path.getsize(dest)
 
                 try:
-                    if compression == 'zip':
+                    if format == 'zip':
                         arcfile = zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED)
                         arcfile.write(path, path[len(arcroot):])
                         arcfile.close()
@@ -340,12 +365,12 @@ def main():
                     else:
                         f_in = open(path, 'rb')
 
-                        if compression == 'gz':
+                        if format == 'gz':
                             f_out = gzip.open(dest, 'wb')
-                        elif compression == 'bz2':
+                        elif format == 'bz2':
                             f_out = bz2.BZ2File(dest, 'wb')
                         else:
-                            raise OSError("Invalid compression")
+                            raise OSError("Invalid format")
 
                         shutil.copyfileobj(f_in, f_out)
 
@@ -353,7 +378,6 @@ def main():
 
                 except OSError:
                     e = get_exception()
-
                     module.fail_json(path=path, dest=dest, msg='Unable to write to compressed file: %s' % str(e))
 
                 if arcfile:
@@ -369,7 +393,7 @@ def main():
 
             state = 'compress'
 
-        if remove:
+        if remove and not check_mode:
             try:
                 os.remove(path)
 
@@ -377,9 +401,12 @@ def main():
                 e = get_exception()
                 module.fail_json(path=path, msg='Unable to remove source file: %s' % str(e))
 
+    params['path'] = dest
+    file_args = module.load_file_common_arguments(params)
+
+    changed = module.set_fs_attributes_if_different(file_args, changed)
+
     module.exit_json(archived=successes, dest=dest, changed=changed, state=state, arcroot=arcroot, missing=missing, expanded_paths=expanded_paths)
 
-# import module snippets
-from ansible.module_utils.basic import *
 if __name__ == '__main__':
     main()

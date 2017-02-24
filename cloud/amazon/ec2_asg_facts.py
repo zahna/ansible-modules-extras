@@ -14,6 +14,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: ec2_asg_facts
@@ -299,7 +303,11 @@ def find_asgs(conn, module, name=None, tags=None):
         module.fail_json(msg=e.message, **camel_dict_to_snake_dict(e.response))
 
     matched_asgs = []
-    name_prog = re.compile(r'^' + name)
+
+    if name is not None:
+        # if the user didn't specify a name
+        name_prog = re.compile(r'^' + name)
+
     for asg in asgs['AutoScalingGroups']:
         if name:
             matched_name = name_prog.search(asg['AutoScalingGroupName'])

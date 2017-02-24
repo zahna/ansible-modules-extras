@@ -16,6 +16,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: gitlab_user
@@ -269,7 +273,7 @@ def main():
             login_token=dict(required=False, no_log=True),
             name=dict(required=True),
             username=dict(required=True),
-            password=dict(required=True),
+            password=dict(required=True, no_log=True),
             email=dict(required=True),
             sshkey_name=dict(required=False),
             sshkey_file=dict(required=False),

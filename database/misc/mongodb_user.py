@@ -19,6 +19,10 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: mongodb_user
@@ -118,21 +122,54 @@ author: "Elliott Foster (@elliotttf)"
 
 EXAMPLES = '''
 # Create 'burgers' database user with name 'bob' and password '12345'.
-- mongodb_user: database=burgers name=bob password=12345 state=present
+- mongodb_user:
+    database: burgers
+    name: bob
+    password: 12345
+    state: present
 
 # Create a database user via SSL (MongoDB must be compiled with the SSL option and configured properly)
-- mongodb_user: database=burgers name=bob password=12345 state=present ssl=True
+- mongodb_user:
+    database: burgers
+    name: bob
+    password: 12345
+    state: present
+    ssl: True
 
 # Delete 'burgers' database user with name 'bob'.
-- mongodb_user: database=burgers name=bob state=absent
+- mongodb_user:
+    database: burgers
+    name: bob
+    state: absent
 
 # Define more users with various specific roles (if not defined, no roles is assigned, and the user will be added via pre mongo 2.2 style)
-- mongodb_user: database=burgers name=ben password=12345 roles='read' state=present
-- mongodb_user: database=burgers name=jim password=12345 roles='readWrite,dbAdmin,userAdmin' state=present
-- mongodb_user: database=burgers name=joe password=12345 roles='readWriteAnyDatabase' state=present
+- mongodb_user:
+    database: burgers
+    name: ben
+    password: 12345
+    roles: read
+    state: present
+- mongodb_user:
+    database: burgers
+    name: jim
+    password: 12345
+    roles: readWrite,dbAdmin,userAdmin
+    state: present
+- mongodb_user:
+    database: burgers
+    name: joe
+    password: 12345
+    roles: readWriteAnyDatabase
+    state: present
 
 # add a user to database in a replica set, the primary server is automatically discovered and written to
-- mongodb_user: database=burgers name=bob replica_set=belcher password=12345 roles='readWriteAnyDatabase' state=present
+- mongodb_user:
+    database: burgers
+    name: bob
+    replica_set: belcher
+    password: 12345
+    roles: readWriteAnyDatabase
+    state: present
 
 # add a user 'oplog_reader' with read only access to the 'local' database on the replica_set 'belcher'. This is usefull for oplog access (MONGO_OPLOG_URL).
 # please notice the credentials must be added to the 'admin' database because the 'local' database is not syncronized and can't receive user credentials
@@ -147,7 +184,8 @@ EXAMPLES = '''
     state: present
     replica_set: belcher
     roles:
-     - { db: "local"  , role: "read" }
+      - db: local
+        role: read
 
 '''
 
@@ -174,21 +212,51 @@ else:
 #
 
 def check_compatibility(module, client):
-    srv_info = client.server_info()
-    if LooseVersion(srv_info['version']) >= LooseVersion('3.2') and LooseVersion(PyMongoVersion) <= LooseVersion('3.2'):
+    """Check the compatibility between the driver and the database.
+
+       See: https://docs.mongodb.com/ecosystem/drivers/driver-compatibility-reference/#python-driver-compatibility
+
+    Args:
+        module: Ansible module.
+        client (cursor): Mongodb cursor on admin database.
+    """
+    loose_srv_version = LooseVersion(client.server_info()['version'])
+    loose_driver_version = LooseVersion(PyMongoVersion)
+
+    if loose_srv_version >= LooseVersion('3.2') and loose_driver_version < LooseVersion('3.2'):
         module.fail_json(msg=' (Note: you must use pymongo 3.2+ with MongoDB >= 3.2)')
-    elif LooseVersion(srv_info['version']) >= LooseVersion('3.0') and LooseVersion(PyMongoVersion) <= LooseVersion('2.8'):
+
+    elif loose_srv_version >= LooseVersion('3.0') and loose_driver_version <= LooseVersion('2.8'):
         module.fail_json(msg=' (Note: you must use pymongo 2.8+ with MongoDB 3.0)')
-    elif LooseVersion(srv_info['version']) >= LooseVersion('2.6') and LooseVersion(PyMongoVersion) <= LooseVersion('2.7'):
+
+    elif loose_srv_version >= LooseVersion('2.6') and loose_driver_version <= LooseVersion('2.7'):
         module.fail_json(msg=' (Note: you must use pymongo 2.7+ with MongoDB 2.6)')
+
     elif LooseVersion(PyMongoVersion) <= LooseVersion('2.5'):
         module.fail_json(msg=' (Note: you must be on mongodb 2.4+ and pymongo 2.5+ to use the roles param)')
 
+
 def user_find(client, user, db_name):
+    """Check if the user exists.
+
+    Args:
+        client (cursor): Mongodb cursor on admin database.
+        user (str): User to check.
+        db_name (str): User's database.
+
+    Returns:
+        dict: when user exists, False otherwise.
+    """
     for mongo_user in client["admin"].system.users.find():
-        if mongo_user['user'] == user and mongo_user['db'] == db_name:
-            return mongo_user
+        if mongo_user['user'] == user:
+            # NOTE: there is no 'db' field in mongo 2.4.
+            if 'db' not in mongo_user:
+                return mongo_user
+
+            if mongo_user["db"] == db_name:
+                return mongo_user
     return False
+
 
 def user_add(module, client, db_name, user, password, roles):
     #pymongo's user_add is a _create_or_update_user so we won't know if it was changed or updated
@@ -303,20 +371,28 @@ def main():
     password = module.params['password']
     ssl = module.params['ssl']
     ssl_cert_reqs = None
-    if ssl:
-        ssl_cert_reqs = getattr(ssl_lib, module.params['ssl_cert_reqs'])
-    roles = module.params['roles']
+    roles = module.params['roles'] or []
     state = module.params['state']
     update_password = module.params['update_password']
 
     try:
+        connection_params = {
+            "host": login_host,
+            "port": int(login_port),
+        }
+
         if replica_set:
-            client = MongoClient(login_host, int(login_port),
-                                 replicaset=replica_set, ssl=ssl,
-                                 ssl_cert_reqs=ssl_cert_reqs)
-        else:
-            client = MongoClient(login_host, int(login_port), ssl=ssl,
-                                 ssl_cert_reqs=ssl_cert_reqs)
+            connection_params["replicaset"] = replica_set
+
+        if ssl:
+            connection_params["ssl"] = ssl
+            connection_params["ssl_cert_reqs"] = getattr(ssl_lib, module.params['ssl_cert_reqs'])
+
+        client = MongoClient(**connection_params)
+
+        # NOTE: this check must be done ASAP.
+        # We doesn't need to be authenticated.
+        check_compatibility(module, client)
 
         if login_user is None and login_password is None:
             mongocnf_creds = load_mongocnf()
@@ -333,10 +409,9 @@ def main():
                 module.fail_json(msg='The localhost login exception only allows the first admin account to be created')
             #else: this has to be the first admin user added
 
-    except ConnectionFailure, e:
+    except Exception:
+        e = get_exception()
         module.fail_json(msg='unable to connect to database: %s' % str(e))
-
-    check_compatibility(module, client)
 
     if state == 'present':
         if password is None and update_password == 'always':
@@ -353,7 +428,8 @@ def main():
                 module.exit_json(changed=True, user=user)
 
             user_add(module, client, db_name, user, password, roles)
-        except OperationFailure, e:
+        except Exception:
+            e = get_exception()
             module.fail_json(msg='Unable to add or update user: %s' % str(e))
 
             # Here we can  check password change if mongo provide a query for that : https://jira.mongodb.org/browse/SERVER-22848
@@ -364,11 +440,15 @@ def main():
     elif state == 'absent':
         try:
             user_remove(module, client, db_name, user)
-        except OperationFailure, e:
+        except Exception:
+            e = get_exception()
             module.fail_json(msg='Unable to remove user: %s' % str(e))
 
     module.exit_json(changed=True, user=user)
 
 # import module snippets
 from ansible.module_utils.basic import *
-main()
+from ansible.module_utils.pycompat24 import get_exception
+
+if __name__ == '__main__':
+    main()

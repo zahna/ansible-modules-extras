@@ -19,6 +19,10 @@
 # along with this software.  If not, see <http://www.gnu.org/licenses/>.
 
 
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
+
 DOCUMENTATION = '''
 ---
 module: modprobe
@@ -52,9 +56,15 @@ options:
 
 EXAMPLES = '''
 # Add the 802.1q module
-- modprobe: name=8021q state=present
+- modprobe:
+    name: 8021q
+    state: present
+
 # Add the dummy module
-- modprobe: name=dummy state=present params="numdummies=2"
+- modprobe:
+    name: dummy
+    state: present
+    params: 'numdummies=2'
 '''
 
 from ansible.module_utils.basic import *
@@ -114,11 +124,12 @@ def main():
             args['changed'] = True
     elif args['state'] == 'absent':
         if present:
-            rc, _, err = module.run_command([module.get_bin_path('rmmod', True), args['name']])
+            rc, _, err = module.run_command([module.get_bin_path('modprobe', True), '-r', args['name']])
             if rc != 0:
                 module.fail_json(msg=err, **args)
             args['changed'] = True
 
     module.exit_json(**args)
 
-main()
+if __name__ == '__main__':
+    main()

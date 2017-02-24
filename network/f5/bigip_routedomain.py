@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
+# Copyright 2016 F5 Networks Inc.
+#
 # This file is part of Ansible
 #
 # Ansible is free software: you can redistribute it and/or modify
@@ -15,6 +17,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
+
+ANSIBLE_METADATA = {'status': ['preview'],
+                    'supported_by': 'community',
+                    'version': '1.0'}
 
 DOCUMENTATION = '''
 ---
@@ -44,12 +50,13 @@ options:
       - The unique identifying integer representing the route domain.
     required: true
   parent:
-    description: |
+    description:
       Specifies the route domain the system searches when it cannot
       find a route in the configured domain.
+    required: false
   routing_protocol:
     description:
-      -  Dynamic routing protocols for the system to use in the route domain.
+      - Dynamic routing protocols for the system to use in the route domain.
     choices:
       - BFD
       - BGP
@@ -260,6 +267,20 @@ class BigIpRouteDomain(object):
             p['service_policy'] = str(r.servicePolicy)
         return p
 
+    def domains(self):
+        result = []
+
+        domains = self.api.tm.net.route_domains.get_collection()
+        for domain in domains:
+            # Just checking for the addition of the partition here for
+            # different versions of BIG-IP
+            if '/' + self.params['partition'] + '/' in domain.name:
+                result.append(domain.name)
+            else:
+                full_name = '/%s/%s' % (self.params['partition'], domain.name)
+                result.append(full_name)
+        return result
+
     def create(self):
         params = dict()
         params['id'] = self.params['id']
@@ -284,7 +305,7 @@ class BigIpRouteDomain(object):
 
         if parent is not None:
             parent = '/%s/%s' % (partition, parent)
-            if parent in self.domains:
+            if parent in self.domains():
                 params['parent'] = parent
             else:
                 raise F5ModuleError(
